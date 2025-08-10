@@ -3,7 +3,7 @@ import logging
 from dotenv import load_dotenv
 
 # Import the HybridSearcher class from your local search implementation
-from local_hybrid_search import HybridSearcher, INDEX_DIR
+from src.local_hybrid_search import HybridSearcher, INDEX_DIR
 
 # We'll use LangChain's wrapper for the LLM
 from langchain_google_genai import ChatGoogleGenerativeAI
