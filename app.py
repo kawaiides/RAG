@@ -66,7 +66,12 @@ def load_local_hybrid_pipeline():
 
 # --- Main Application UI ---
 st.title("📄 Document Search and Summarization Engine")
-st.markdown("This interface allows you to query a knowledge base using two different backend retrieval systems.")
+st.markdown("" \
+"This interface allows you to query a knowledge base using two different backend retrieval systems." \
+"Checkout the project at- https://github.com/kawaiides/RAG" \
+"It is adviced to use your own API keys as mine is on the free tier and subject to rate limits." \
+"made with ❤️ by Shyam Sunder | f20190644g@alumni.bits-pilani.ac.in"
+)
 
 # --- Sidebar Configuration ---
 st.sidebar.header("⚙️ Configuration")
