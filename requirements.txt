@@ -1,3 +1,4 @@
+asyncio 
 wikipedia-api
 python-dotenv
 langchain-text-splitters
@@ -13,3 +14,4 @@ rank-bm25
 faiss-cpu
 streamlit
 rouge-score
+pypdf

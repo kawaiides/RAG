@@ -25,15 +25,18 @@ class SummarizationPipeline:
         self.llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1)
         logging.info("Summarization pipeline initialized successfully.")
 
-    def summarize(self, query: str) -> str:
+    def summarize(self, query: str, summary_length: str = "Medium") -> tuple[str, list[dict]]:
         """
         Executes the full search-and-summarize pipeline for a given query.
         
         Args:
             query (str): The user's question.
+            summary_length (str): The desired length of the summary.
 
         Returns:
-            str: A formatted string containing the summary and source links.
+            tuple[str, list[dict]]: A tuple containing:
+                - A summary string.
+                - A list of source document dictionaries.
         """
         logging.info(f"Executing pipeline for query: '{query}'")
 
@@ -41,19 +44,25 @@ class SummarizationPipeline:
         search_results = self.searcher.search(query, top_k=5)
 
         if not search_results:
-            return "Sorry, I could not find any relevant documents to answer your question."
+            return "Sorry, I could not find any relevant documents to answer your question.", []
 
-        # Step 2: Assemble the context and collect unique sources
+        # Step 2: Assemble the context for the LLM
         context = "\n\n---\n\n".join([doc['text'] for doc in search_results])
         
-        # Collect unique sources to avoid duplicates in the citation list
-        sources = {} # Use a dict to store title -> url for automatic deduplication
-        for doc in search_results:
-            sources[doc['source_title']] = doc.get('source_url', '#') # Use '#' if URL is missing
-        
+        max_tokens_map = {
+            "Short": 30,
+            "Medium": 70,
+            "Long": 1000
+        }
+        max_tokens = max_tokens_map.get(summary_length, 70)
+
+        llm_with_max_tokens = self.llm.bind(max_output_tokens=max_tokens)
+        instruction = "a concise summary"
+        if max_tokens >= 400:
+            instruction = "a very long and very detailed summary, make sure to discuss every little detail"
         # Step 3: Build the prompt for the LLM
         prompt_template = f"""
-        You are an expert summarization assistant. Your task is to provide a concise and factual summary that directly answers the user's question, based ONLY on the context provided.
+        You are an expert summarization assistant. Your task is to provide a summary that directly answers the user's question, based ONLY on the context provided.
         Do not include any information that is not mentioned in the context.
 
         CONTEXT:
@@ -62,27 +71,16 @@ class SummarizationPipeline:
         ---
 
         QUESTION: {query}
-
+        INSTRUCTION: {instruction}
         SUMMARY:
         """
 
         # Step 4: Generate the summary with the LLM
-        logging.info("Generating summary from context...")
-        summary = self.llm.invoke(prompt_template).content
+        logging.info(f"Generating summary from context with max_tokens={max_tokens}...")
+        summary = llm_with_max_tokens.invoke(prompt_template).content
         
-        # Step 5: Format the final output with the summary and source links 🔗
-        formatted_sources = []
-        for title, url in sources.items():
-            formatted_sources.append(f"* [{title}]({url})")
-        
-        final_output = (
-            f"{summary}\n\n"
-            "---\n"
-            "**Sources:**\n"
-            + "\n".join(formatted_sources)
-        )
-        
-        return final_output
+        # Step 5: Return the summary and the original search results
+        return summary, search_results
 
 # --- Example Usage ---
 if __name__ == "__main__":
@@ -95,11 +93,28 @@ if __name__ == "__main__":
     user_query = "What is the attention mechanism and why is it important for transformers?"
 
     # Run the pipeline and get the final, formatted answer
-    final_answer = pipeline.summarize(user_query)
+    summary, sources = pipeline.summarize(user_query, summary_length="Short")
+
+    # Format the output for printing
+    formatted_sources = []
+    unique_sources = {}
+    for doc in sources:
+        unique_sources[doc['source_title']] = doc.get('source_url', '#')
+    
+    for title, url in unique_sources.items():
+        formatted_sources.append(f"* [{title}]({url})")
+    
+    final_output = (
+        f"{summary}\n\n"
+        "---\n"
+        "**Sources:**\n"
+        + "\n".join(formatted_sources)
+    )
+
 
     # Print the result
     print("\n" + "="*80)
     print(f"QUESTION: {user_query}\n")
     print("ANSWER:")
-    print(final_answer)
+    print(final_output)
     print("="*80)

@@ -1,3 +1,4 @@
+# local_hybrid_search.py
 import json
 import pickle
 from pathlib import Path
@@ -70,8 +71,13 @@ class HybridSearcher:
         reranked_results.sort(key=lambda x: x[1], reverse=True)
         
         # --- 5. Final Top-K Results ---
-        final_indices = [idx for idx, score in reranked_results[:top_k]]
-        final_results = [self.metadata[i] for i in final_indices]
+        final_results = []
+        for idx, score in reranked_results[:top_k]:
+            # Use .copy() to avoid modifying the original metadata list in memory
+            doc = self.metadata[idx].copy()
+            # Add the rerank_score to the document dictionary
+            doc['rerank_score'] = float(score)
+            final_results.append(doc)
         
         return final_results
 
@@ -86,7 +92,7 @@ if __name__ == "__main__":
     
     print("\n--- Top 5 Reranked Results ---")
     for i, doc in enumerate(results):
-        print(f"{i+1}. {doc['source_title']}")
+        print(f"{i+1}. {doc['source_title']} (Rerank Score: {doc['rerank_score']:.4f})")
         print(f"   Excerpt: {doc['text'][:200]}...")
         print("-" * 20)
 
