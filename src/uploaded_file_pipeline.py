@@ -16,7 +16,10 @@ from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def _format_docs_with_scores(docs_with_scores):
-    """Helper to add the retrieval score to each document's metadata."""
+    """
+    Helper function to add the retrieval score to each document's metadata.
+    FAISS returns L2 distance, so a lower score is better.
+    """
     formatted_docs = []
     for doc, score in docs_with_scores:
         doc.metadata['score'] = score
@@ -27,6 +30,7 @@ def create_pipeline_for_pdf(uploaded_file, google_api_key: str):
     """
     Creates a complete RAG pipeline for a PDF that returns sources and scores.
     """
+    # Handle asyncio event loop
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -35,6 +39,7 @@ def create_pipeline_for_pdf(uploaded_file, google_api_key: str):
 
     os.environ["GOOGLE_API_KEY"] = google_api_key
 
+    # Use a temporary file to handle the uploaded PDF
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
         tmpfile.write(uploaded_file.getvalue())
         tmp_path = tmpfile.name
@@ -42,6 +47,7 @@ def create_pipeline_for_pdf(uploaded_file, google_api_key: str):
     try:
         logging.info(f"Processing PDF from temporary path: {tmp_path}")
         
+        # 1. Load and split the document
         loader = PyPDFLoader(tmp_path)
         documents = loader.load()
         
@@ -52,12 +58,13 @@ def create_pipeline_for_pdf(uploaded_file, google_api_key: str):
         docs = text_splitter.split_documents(documents)
         logging.info(f"Split PDF into {len(docs)} chunks.")
 
+        # 2. Create embeddings and vector store
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-
         logging.info("Creating in-memory FAISS vector store...")
         vector_store = FAISS.from_documents(docs, embeddings)
         logging.info("FAISS vector store created successfully.")
 
+        # 3. Define the prompt and LLM
         prompt_template = """
         You are an assistant for question-answering tasks.
         Use only the following pieces of retrieved context to answer the question.
@@ -75,21 +82,27 @@ def create_pipeline_for_pdf(uploaded_file, google_api_key: str):
         llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
         question_answer_chain = create_stuff_documents_chain(llm, prompt)
 
-        # Custom chain to retrieve docs with scores and format the output correctly
+        # 4. Create a function to retrieve docs AND format them with scores
         def retrieve_docs_with_scores(input_dict):
+            """Retrieves documents from the vector store and formats them with their scores."""
             query = input_dict["query"]
+            # Use similarity_search_with_score to get (document, score) tuples
             docs_with_scores = vector_store.similarity_search_with_score(query, k=5)
+            # Use the helper function to add scores to metadata
             return _format_docs_with_scores(docs_with_scores)
 
-        # Assemble the final chain using LangChain Expression Language (LCEL)
+        # 5. Assemble the final chain using LangChain Expression Language (LCEL)
         rag_chain = (
             {
+                # The 'context' is now the list of documents with scores in their metadata
                 "context": RunnableLambda(retrieve_docs_with_scores),
                 "input": RunnablePassthrough()
             }
+            # Create a new 'answer' key by passing the context and original query to the QA chain
             | RunnablePassthrough.assign(
                 answer=(lambda x: {"context": x["context"], "input": x["input"]["query"]}) | question_answer_chain
             )
+            # The final output is a dictionary with the answer and the score-annotated documents
             | (lambda x: {"answer": x["answer"], "docs": x["context"]})
         )
         
@@ -100,6 +113,7 @@ def create_pipeline_for_pdf(uploaded_file, google_api_key: str):
         logging.error(f"Failed to create PDF pipeline: {e}", exc_info=True)
         raise
     finally:
+        # Clean up the temporary file
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
             logging.info(f"Removed temporary file: {tmp_path}")
